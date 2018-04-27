@@ -5,12 +5,13 @@ import (
     "encoding/json"
 	"fmt"
     "bytes"
-	//"io"
 	"io/ioutil"
 	"log"
-	//"strings"
+    "strings"
+	//"time"
 
 	"github.com/jroimartin/gocui"
+    "github.com/buger/jsonparser"
 )
 
 type User struct{
@@ -36,6 +37,9 @@ type Text struct {
 	Body    string  `json:"body"`
 }
 
+type Sync struct {
+    Next_batch string `json:"next_batch"`
+}
 
 func nextView(g *gocui.Gui, v *gocui.View) error {
 
@@ -54,11 +58,13 @@ func nextView(g *gocui.Gui, v *gocui.View) error {
 
 }
 
+var MessageView *gocui.View
 var Gtoken string
 var resp Response
+var room_key string = "!ZrzlKsobMlMKSrwjyQ:amadeus0.science"
 
 func Login() {
-	u := User{Type:"m.login.password", User:"xxxxx", Password:"xxxx"}
+	u := User{Type:"m.login.password", User:"xxx", Password:"xxxxx"}
 	b := new(bytes.Buffer)
 	json.NewEncoder(b).Encode(u)
 	res, _ := http.Post("http://amadeus0.science:8008/_matrix/client/r0/login", "application/json; charset=utf-8", b)
@@ -85,8 +91,45 @@ func SendMessage(g *gocui.Gui, v *gocui.View) error{
     v.SetCursor(0,0)
 
 	http.Post("http://amadeus0.science:8008/_matrix/client/r0/rooms/" + room_key + "/send/m.room.message?access_token=" + Gtoken, "application/json; charset=utf-8", p)
+    SyncNew()   
     return nil
 
+}
+
+
+var Since string
+
+func SyncNew() {
+        oldmsg,_ := http.Get("http://amadeus0.science:8008/_matrix/client/r0/rooms/" + room_key + "/messages?from="+ Since +"&dir=f&access_token=" + Gtoken)
+        old,_ := ioutil.ReadAll(oldmsg.Body)
+   jsonparser.ArrayEach(old, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
+	clean,_,_,_ := jsonparser.Get(value, "content", "body") 
+    fmt.Fprint(MessageView, strings.Replace(string(clean), `\n`, "\n", -1))
+}, "chunk")
+
+sync, _ := http.Get("http://amadeus0.science:8008/_matrix/client/r0/sync?since="+ Since +"&access_token=" + Gtoken)
+        tmp_sync,_ := ioutil.ReadAll(sync.Body)    
+    
+        var sync2 Sync
+        json.Unmarshal(tmp_sync, &sync2)    
+
+    Since = sync2.Next_batch
+}
+
+func SyncOld() {
+sync, _ := http.Get("http://amadeus0.science:8008/_matrix/client/r0/sync?access_token=" + Gtoken)
+        tmp_sync,_ := ioutil.ReadAll(sync.Body)    
+    
+        var sync2 Sync
+        json.Unmarshal(tmp_sync, &sync2)    
+        Since = sync2.Next_batch
+
+        oldmsg,_ := http.Get("http://amadeus0.science:8008/_matrix/client/r0/rooms/" + room_key + "/messages?from="+ sync2.Next_batch +"&dir=b&access_token=" + Gtoken)
+        old,_ := ioutil.ReadAll(oldmsg.Body)
+   jsonparser.ArrayEach(old, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
+	clean,_,_,_ := jsonparser.Get(value, "content", "body")
+    fmt.Fprint(MessageView,  strings.Replace(string(clean), `\n`, "\n", -1))
+}, "chunk")
 }
 
 func cursorDown(g *gocui.Gui, v *gocui.View) error {
@@ -183,7 +226,6 @@ func keybindings(g *gocui.Gui) error {
 	return nil
 }
 
-
 func layout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
 	if v, err := g.SetView("side", -1, -1, 15, maxY); err != nil {
@@ -214,7 +256,9 @@ func layout(g *gocui.Gui) error {
 		if err != gocui.ErrUnknownView {
 			return err
 		}
-		fmt.Fprint(v, "Messages go here")
+        MessageView = v
+        SyncOld()
+        
 		v.Editable = false
 		v.Wrap = true
 		if _, err := g.SetCurrentView("bottom"); err != nil {
@@ -245,4 +289,3 @@ func main() {
 		log.Panicln(err)
 	}
 }
-
