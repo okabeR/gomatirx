@@ -1,45 +1,12 @@
 package main
 
 import (
-    "net/http"
-    "encoding/json"
 	"fmt"
-    "bytes"
-	"io/ioutil"
 	"log"
-    "strings"
-	//"time"
 
-	"github.com/jroimartin/gocui"
-    "github.com/buger/jsonparser"
+    "github.com/jroimartin/gocui"
+    "github.com/matrix-org/gomatrix"
 )
-
-type User struct{
-    Type      string `json:"type"`
-    User      string `json:"user"`
-    Password  string `json:"password"`
-
-}
-
-type  Response struct {
-    Access_token string
-    Home_server  string
-    User_id	 string
-    Device_id    string
-}
-
-type  Room struct {
-	Room_id string `json:"room_id"`
-}
-
-type Text struct {
-	Msgtype string  `json:"msgtype"`
-	Body    string  `json:"body"`
-}
-
-type Sync struct {
-    Next_batch string `json:"next_batch"`
-}
 
 func nextView(g *gocui.Gui, v *gocui.View) error {
 
@@ -57,79 +24,65 @@ func nextView(g *gocui.Gui, v *gocui.View) error {
 	}
 
 }
-
+var cli *gomatrix.Client
 var MessageView *gocui.View
-var Gtoken string
-var resp Response
-var room_key string = "!ZrzlKsobMlMKSrwjyQ:amadeus0.science"
 
 func Login() {
-	u := User{Type:"m.login.password", User:"xxx", Password:"xxxxx"}
-	b := new(bytes.Buffer)
-	json.NewEncoder(b).Encode(u)
-	res, _ := http.Post("http://amadeus0.science:8008/_matrix/client/r0/login", "application/json; charset=utf-8", b)
-	temp, _ := ioutil.ReadAll(res.Body)
+    cli, _ = gomatrix.NewClient("http://amadeus0.science:8008", "", "")
+	resp, err := cli.Login(&gomatrix.ReqLogin{
+	Type:     "m.login.password",
+	User:     "xxxx",
+	Password: "xxxx",
+	})
+if err != nil {
+    panic(err)
+}
 
-	json.Unmarshal(temp, &resp)
-    Gtoken = resp.Access_token
+cli.SetCredentials(resp.UserID, resp.AccessToken)
 }
 
 func SendMessage(g *gocui.Gui, v *gocui.View) error{
-    stuff := v.ViewBuffer()
+    //stuff := v.ViewBuffer()
 
-    var roomid Room
-	room, _ := http.Get("http://amadeus0.science:8008/_matrix/client/r0/publicRooms")
-	tmpr,_ := ioutil.ReadAll(room.Body)
-	json.Unmarshal(tmpr, &roomid)
-	//fmt.Println(roomid.Room_id)
+    //rooms, _ := cli.JoinedRooms()
+    //room_key := rooms.JoinedRooms[0]
 
-	m := Text{Msgtype: "m.text", Body:stuff}
-	p := new(bytes.Buffer)
-	json.NewEncoder(p).Encode(m)
-	var room_key string = "!ZrzlKsobMlMKSrwjyQ:amadeus0.science"
     v.Clear()
     v.SetCursor(0,0)
 
-	http.Post("http://amadeus0.science:8008/_matrix/client/r0/rooms/" + room_key + "/send/m.room.message?access_token=" + Gtoken, "application/json; charset=utf-8", p)
-    SyncNew()   
+    //SyncNew()
     return nil
-
 }
 
 
 var Since string
 
 func SyncNew() {
-        oldmsg,_ := http.Get("http://amadeus0.science:8008/_matrix/client/r0/rooms/" + room_key + "/messages?from="+ Since +"&dir=f&access_token=" + Gtoken)
-        old,_ := ioutil.ReadAll(oldmsg.Body)
-   jsonparser.ArrayEach(old, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-	clean,_,_,_ := jsonparser.Get(value, "content", "body") 
-    fmt.Fprint(MessageView, strings.Replace(string(clean), `\n`, "\n", -1))
-}, "chunk")
 
-sync, _ := http.Get("http://amadeus0.science:8008/_matrix/client/r0/sync?since="+ Since +"&access_token=" + Gtoken)
-        tmp_sync,_ := ioutil.ReadAll(sync.Body)    
-    
-        var sync2 Sync
-        json.Unmarshal(tmp_sync, &sync2)    
+rooms, _ := cli.JoinedRooms()
+room_key := rooms.JoinedRooms[0]
 
-    Since = sync2.Next_batch
+syn,_ := cli.SyncRequest(30000,"","",true, "online")
+        listmap := syn.Rooms.Join
+        messages := listmap[room_key].Timeline.Events
+        fmt.Println(messages)
+
+        for _, value := range messages {
+    fmt.Println(value.Content["body"])
+}
 }
 
 func SyncOld() {
-sync, _ := http.Get("http://amadeus0.science:8008/_matrix/client/r0/sync?access_token=" + Gtoken)
-        tmp_sync,_ := ioutil.ReadAll(sync.Body)    
-    
-        var sync2 Sync
-        json.Unmarshal(tmp_sync, &sync2)    
-        Since = sync2.Next_batch
 
-        oldmsg,_ := http.Get("http://amadeus0.science:8008/_matrix/client/r0/rooms/" + room_key + "/messages?from="+ sync2.Next_batch +"&dir=b&access_token=" + Gtoken)
-        old,_ := ioutil.ReadAll(oldmsg.Body)
-   jsonparser.ArrayEach(old, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-	clean,_,_,_ := jsonparser.Get(value, "content", "body")
-    fmt.Fprint(MessageView,  strings.Replace(string(clean), `\n`, "\n", -1))
-}, "chunk")
+	rooms, _ := cli.JoinedRooms()
+	room_key := rooms.JoinedRooms[0]
+
+	syn,_ := cli.SyncRequest(30000,"","",true, "online")
+        listmap := syn.Rooms.Join
+        messages := listmap[room_key].Timeline.Events
+		for _, value := range messages {
+		fmt.Fprintln(MessageView, value.Content["body"])
+		}
 }
 
 func cursorDown(g *gocui.Gui, v *gocui.View) error {
@@ -289,3 +242,4 @@ func main() {
 		log.Panicln(err)
 	}
 }
+
