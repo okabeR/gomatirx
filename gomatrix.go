@@ -42,15 +42,16 @@ cli.SetCredentials(resp.UserID, resp.AccessToken)
 }
 
 func SendMessage(g *gocui.Gui, v *gocui.View) error{
-    //stuff := v.ViewBuffer()
+    stuff := v.ViewBuffer()
 
-    //rooms, _ := cli.JoinedRooms()
-    //room_key := rooms.JoinedRooms[0]
+    rooms, _ := cli.JoinedRooms()
+    room_key := rooms.JoinedRooms[0]
+
+    cli.SendMessageEvent(room_key,"m.room.message", gomatrix.TextMessage{MsgType: "m.room.message", Body: stuff})
 
     v.Clear()
     v.SetCursor(0,0)
-
-    //SyncNew()
+    SyncNew()
     return nil
 }
 
@@ -63,13 +64,11 @@ rooms, _ := cli.JoinedRooms()
 room_key := rooms.JoinedRooms[0]
 
 syn,_ := cli.SyncRequest(30000,"","",true, "online")
-        listmap := syn.Rooms.Join
-        messages := listmap[room_key].Timeline.Events
-        fmt.Println(messages)
-
-        for _, value := range messages {
-    fmt.Println(value.Content["body"])
-}
+	new_mess,_ := cli.Messages(room_key, Since, "", 'f' , 100)
+	   for _, value := range new_mess.Chunk {
+	   fmt.Fprintln(MessageView, value.Content["body"])
+	   }
+   Since = syn.NextBatch
 }
 
 func SyncOld() {
@@ -83,6 +82,7 @@ func SyncOld() {
 		for _, value := range messages {
 		fmt.Fprintln(MessageView, value.Content["body"])
 		}
+	Since = syn.NextBatch
 }
 
 func cursorDown(g *gocui.Gui, v *gocui.View) error {
